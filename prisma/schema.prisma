@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  services     Service[]
+
+  @@map("users")
+}
+
+model Service {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId          String        @map("user_id") @db.Uuid
+  name            String
+  type            ServiceType
+  target          String
+  intervalSeconds Int           @map("interval_seconds")
+  timeoutSeconds  Int?          @default(5) @map("timeout_seconds")
+  enabled         Boolean?      @default(true)
+  createdAt       DateTime?     @default(now()) @map("created_at") @db.Timestamptz(6)
+  alerts          Alert[]
+  checkResults    CheckResult[]
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([enabled], map: "idx_services_enabled")
+  @@index([userId], map: "idx_services_user_id")
+  @@map("services")
+}
+
+model CheckResult {
+  id             String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  serviceId      String        @map("service_id") @db.Uuid
+  status         ServiceStatus
+  responseTimeMs Int?          @map("response_time_ms")
+  errorMessage   String?       @map("error_message")
+  checkedAt      DateTime      @default(now()) @map("checked_at") @db.Timestamptz(6)
+  service        Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([checkedAt(sort: Desc)], map: "idx_check_results_checked_at")
+  @@index([serviceId, checkedAt(sort: Desc)], map: "idx_check_results_service_time")
+  @@map("check_results")
+}
+
+model Alert {
+  id        String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  serviceId String       @map("service_id") @db.Uuid
+  channel   AlertChannel
+  condition String
+  enabled   Boolean?     @default(true)
+  createdAt DateTime?    @default(now()) @map("created_at") @db.Timestamptz(6)
+  logs      AlertLog[]
+  service   Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("alerts")
+}
+
+model AlertLog {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  alertId     String    @map("alert_id") @db.Uuid
+  message     String?
+  triggeredAt DateTime? @default(now()) @map("triggered_at") @db.Timestamptz(6)
+  alert       Alert     @relation(fields: [alertId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("alert_logs")
+}
+
+enum ServiceType {
+  HTTP
+  TCP
+  PROCESS
+
+  @@map("service_type")
+}
+
+enum ServiceStatus {
+  UP
+  DOWN
+  DEGRADED
+
+  @@map("service_status")
+}
+
+enum AlertChannel {
+  EMAIL
+  WEBHOOK
+  TELEGRAM
+
+  @@map("alert_channel")
+}
