@@ -40,7 +40,7 @@ class CheckResult:
         
         for check in checks:
             check['_id'] = str(check['_id'])
-            check['checked_at'] = check['checked_at'].isoformat()
+            check['checked_at'] = check['checked_at'].isoformat() + 'Z'
         
         return checks
     
@@ -55,7 +55,7 @@ class CheckResult:
         
         for check in checks:
             check['_id'] = str(check['_id'])
-            check['checked_at'] = check['checked_at'].isoformat()
+            check['checked_at'] = check['checked_at'].isoformat() + 'Z'
         
         return checks
     

@@ -5,88 +5,119 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 def check_endpoint(endpoint):
-    """
-    Проверяет доступность эндпоинта
-    
-    Args:
-        endpoint: словарь с данными эндпоинта из MongoDB
-            {
-                "_id": ObjectId,
-                "name": str,
-                "url": str,
-                "method": str (GET, POST, etc.),
-                "expected_status": int,
-                "timeout": int (секунды),
-                "interval": int,
-                "active": bool
-            }
-    
-    Returns:
-        dict: результат проверки
-            {
-                "endpoint_id": str,
-                "status": str ("up" или "down"),
-                "latency_ms": int or None,
-                "http_status": int or None,
-                "error_message": str or None,
-                "checked_at": datetime
-            }
-    """
-    
     start_time = time.time()
     endpoint_id = str(endpoint['_id'])
     url = endpoint['url']
     method = endpoint.get('method', 'GET').upper()
     expected_status = endpoint.get('expected_status', 200)
-    timeout = endpoint.get('timeout', 5)
-    
+    timeout = endpoint.get('timeout', 10)
+
     result = {
         "endpoint_id": endpoint_id,
-        "status": "down",  # по умолчанию down
+        "status": "down",
         "latency_ms": None,
         "http_status": None,
         "error_message": None,
         "checked_at": datetime.utcnow()
     }
-    
+
     try:
-        # Выполняем HTTP запрос
-        response = requests.request(
+        # ── Заголовки ──
+        headers = {'User-Agent': 'Beacon-Monitor/1.0'}
+
+        # Кастомные заголовки из настроек
+        for h in endpoint.get('headers') or []:
+            if h.get('key'):
+                headers[h['key']] = h.get('value', '')
+
+        # ── Аутентификация ──
+        auth = None
+        auth_type = endpoint.get('auth_type', 'none')
+
+        if auth_type == 'bearer':
+            token = endpoint.get('auth_bearer_token', '')
+            if token:
+                headers['Authorization'] = f'Bearer {token}'
+
+        elif auth_type == 'basic':
+            user = endpoint.get('auth_basic_user', '')
+            pwd = endpoint.get('auth_basic_pass', '')
+            if user:
+                auth = (user, pwd)
+
+        elif auth_type == 'api_key':
+            key_header = endpoint.get('auth_api_key_header', 'X-API-Key')
+            key_value = endpoint.get('auth_api_key_value', '')
+            if key_header and key_value:
+                headers[key_header] = key_value
+
+        # ── Тело запроса ──
+        body = None
+        if method in ('POST', 'PUT', 'PATCH') and endpoint.get('body'):
+            body = endpoint['body']
+            content_type = endpoint.get('body_content_type', 'application/json')
+            headers['Content-Type'] = content_type
+
+        # ── SSL и редиректы ──
+        follow_redirects = endpoint.get('follow_redirects', True)
+        ssl_verify = endpoint.get('ssl_verify', True)
+        max_redirects = endpoint.get('max_redirects', 5)
+
+        session = requests.Session()
+        session.max_redirects = max_redirects
+
+        response = session.request(
             method=method,
             url=url,
             timeout=timeout,
-            allow_redirects=True,
-            headers={
-                'User-Agent': 'Beacon-Monitor/1.0'
-            }
+            allow_redirects=follow_redirects,
+            headers=headers,
+            auth=auth,
+            data=body if body else None,
+            verify=ssl_verify,
         )
-        
-        # Вычисляем latency
+
         latency_ms = int((time.time() - start_time) * 1000)
         result['latency_ms'] = latency_ms
         result['http_status'] = response.status_code
-        
-        # Проверяем статус ответа
-        if response.status_code == expected_status:
-            result['status'] = "up"
-        else:
-            result['error_message'] = f"Expected status {expected_status}, got {response.status_code}"
-            
+
+        # ── Проверка статус-кода ──
+        if response.status_code != expected_status:
+            result['error_message'] = f"Expected {expected_status}, got {response.status_code}"
+            return result
+
+        # ── Проверка тела ответа ──
+        body_type = endpoint.get('expected_body_type', 'none')
+        expected_body = endpoint.get('expected_body', '')
+
+        if body_type != 'none' and expected_body:
+            response_text = response.text
+            match = False
+
+            if body_type == 'contains':
+                match = expected_body in response_text
+            elif body_type == 'exact':
+                match = response_text.strip() == expected_body.strip()
+            elif body_type == 'regex':
+                match = bool(re.search(expected_body, response_text))
+
+            if not match:
+                result['error_message'] = f"Body check failed ({body_type}): '{expected_body}'"
+                return result
+
+        result['status'] = 'up'
+
     except requests.exceptions.Timeout:
-        result['error_message'] = f"Connection timeout after {timeout} seconds"
-        
-    except requests.exceptions.ConnectionError:
-        result['error_message'] = "Connection error (DNS failure, refused connection, etc.)"
-        
+        result['error_message'] = f"Timeout after {timeout}s"
+    except requests.exceptions.SSLError as e:
+        result['error_message'] = f"SSL error: {str(e)[:100]}"
     except requests.exceptions.TooManyRedirects:
         result['error_message'] = "Too many redirects"
-        
+    except requests.exceptions.ConnectionError:
+        result['error_message'] = "Connection error"
     except requests.exceptions.RequestException as e:
-        result['error_message'] = f"Request failed: {str(e)}"
-        
-    except Exception as e:
-        result['error_message'] = f"Unexpected error: {str(e)}"
-    
+        result['error_message'] = f"Request failed: {str(e)[:100]}"
+
     return result
 
 

@@ -9,59 +9,80 @@ bp = Blueprint('endpoints', __name__, url_prefix='/api/endpoints')
 @bp.route('', methods=['GET'])
 @login_required
 def list_endpoints():
-    """Список всех эндпоинтов текущего пользователя"""
     db = get_db()
     user_id = str(g.current_user['_id'])
     
     endpoints = list(db.endpoints.find({"user_id": user_id}))
+    result = []
     for e in endpoints:
         e['_id'] = str(e['_id'])
         e.pop('user_id', None)
+        # Маппим last_status → status для фронта
+        e['status'] = e.pop('last_status', None) or 'unknown'
+        # Сериализуем datetime
+        if e.get('last_check_at'):
+            e['last_check_at'] = e['last_check_at'].isoformat() + 'Z'
+        if e.get('created_at'):
+            e['created_at'] = e['created_at'].isoformat() + 'Z'
+        if e.get('updated_at'):
+            e['updated_at'] = e['updated_at'].isoformat() + 'Z'
+        result.append(e)
     
-    return jsonify(endpoints)
+    return jsonify(result)
 
 @bp.route('', methods=['POST'])
 @login_required
 def create_endpoint():
-    """Создать новый эндпоинт для мониторинга"""
     data = request.json
-    
-    # Валидация
+
     if not data.get('name') or not data.get('url'):
         return jsonify({"error": "name and url are required"}), 400
-    
-    # Нормализация URL
+
     url = data['url'].strip()
     if not url.startswith(('http://', 'https://')):
         url = 'http://' + url
-    
+
     db = get_db()
     endpoint = {
         "name": data['name'],
         "url": url,
         "method": data.get('method', 'GET'),
         "expected_status": data.get('expected_status', 200),
-        "timeout": data.get('timeout', 5),
-        "interval": data.get('interval', 60),  # секунд между проверками
+        "expected_body": data.get('expected_body', ''),
+        "expected_body_type": data.get('expected_body_type', 'none'),
+        "timeout": data.get('timeout', 10),
+        "interval": data.get('interval', 300),
         "active": data.get('active', True),
+
+        "auth_type": data.get('auth_type', 'none'),
+        "auth_bearer_token": data.get('auth_bearer_token', ''),
+        "auth_basic_user": data.get('auth_basic_user', ''),
+        "auth_basic_pass": data.get('auth_basic_pass', ''),
+        "auth_api_key_header": data.get('auth_api_key_header', 'X-API-Key'),
+        "auth_api_key_value": data.get('auth_api_key_value', ''),
+
+        "headers": data.get('headers', []),
+        "body": data.get('body', ''),
+        "body_content_type": data.get('body_content_type', 'application/json'),
+
+        "follow_redirects": data.get('follow_redirects', True),
+        "ssl_verify": data.get('ssl_verify', True),
+        "max_redirects": data.get('max_redirects', 5),
+
         "user_id": str(g.current_user['_id']),
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
         "last_check_at": None,
-        "last_status": None
+        "last_status": None,
+        "latency_ms": None,
     }
-    
+
     result = db.endpoints.insert_one(endpoint)
-    
-    return jsonify({
-        "message": "Endpoint created",
-        "id": str(result.inserted_id)
-    }), 201
+    return jsonify({"message": "Endpoint created", "id": str(result.inserted_id)}), 201
 
 @bp.route('/<endpoint_id>', methods=['GET'])
 @login_required
 def get_endpoint(endpoint_id):
-    """Получить детали конкретного эндпоинта"""
     db = get_db()
     user_id = str(g.current_user['_id'])
     
@@ -75,53 +96,70 @@ def get_endpoint(endpoint_id):
             return jsonify({"error": "Endpoint not found"}), 404
         
         endpoint['_id'] = str(endpoint['_id'])
+        endpoint['id'] = endpoint['_id']  
+        endpoint['status'] = endpoint.pop('last_status', None) or 'unknown'
+        
+        for field in ['last_check_at', 'created_at', 'updated_at']:
+            if endpoint.get(field):
+                endpoint[field] = endpoint[field].isoformat() + 'Z'
+
         endpoint.pop('user_id', None)
         
-        # Добавляем последние проверки
         last_checks = list(db.checks.find(
             {"endpoint_id": endpoint_id}
-        ).sort("checked_at", -1).limit(10))
+        ).sort("checked_at", -1).limit(50)) 
         
         for check in last_checks:
             check['_id'] = str(check['_id'])
-            check['checked_at'] = check['checked_at'].isoformat()
+            if check.get('checked_at'):
+                check['checked_at'] = check['checked_at'].isoformat() + 'Z'
+
         
         endpoint['last_checks'] = last_checks
         
+        print(f"GET endpoint fields: {list(endpoint.keys())}") 
+        
         return jsonify(endpoint)
         
-    except:
+    except Exception as e:
+        print(f"GET endpoint error: {e}")  
         return jsonify({"error": "Invalid endpoint id"}), 400
 
 @bp.route('/<endpoint_id>', methods=['PUT'])
 @login_required
 def update_endpoint(endpoint_id):
-    """Обновить эндпоинт"""
     db = get_db()
     user_id = str(g.current_user['_id'])
     data = request.json
-    
-    # Разрешаем обновлять только определённые поля
-    allowed_fields = ['name', 'url', 'method', 'expected_status', 
-                     'timeout', 'interval', 'active']
+
+    print(f"endpoint_id: {endpoint_id}")
+    print(f"user_id: {user_id}")
+    print(f"data keys: {list(data.keys()) if data else 'NO DATA'}")
+
+    allowed_fields = [
+        'name', 'url', 'method', 'expected_status', 'expected_body',
+        'expected_body_type', 'timeout', 'interval', 'active',
+        'auth_type', 'auth_bearer_token', 'auth_basic_user', 'auth_basic_pass',
+        'auth_api_key_header', 'auth_api_key_value',
+        'headers', 'body', 'body_content_type',
+        'follow_redirects', 'ssl_verify', 'max_redirects',
+    ]
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
     
-    if 'url' in update_data:
-        url = update_data['url'].strip()
-        if not url.startswith(('http://', 'https://')):
-            url = 'http://' + url
-        update_data['url'] = url
-    
+    print(f"update_data: {update_data}")
+
     update_data['updated_at'] = datetime.utcnow()
-    
+
     result = db.endpoints.update_one(
         {"_id": ObjectId(endpoint_id), "user_id": user_id},
         {"$set": update_data}
     )
-    
+
+    print(f"matched: {result.matched_count}, modified: {result.modified_count}")
+
     if result.matched_count == 0:
         return jsonify({"error": "Endpoint not found"}), 404
-    
+
     return jsonify({"message": "Endpoint updated"})
 
 @bp.route('/<endpoint_id>', methods=['DELETE'])
@@ -141,7 +179,6 @@ def delete_endpoint(endpoint_id):
         if result.deleted_count == 0:
             return jsonify({"error": "Endpoint not found"}), 404
         
-        # Удаляем все проверки и инциденты связанные с ним
         db.checks.delete_many({"endpoint_id": endpoint_id})
         db.incidents.delete_many({"endpoint_id": endpoint_id})
         

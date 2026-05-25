@@ -63,7 +63,7 @@ class Incident:
         
         for inc in incidents:
             inc['_id'] = str(inc['_id'])
-            inc['started_at'] = inc['started_at'].isoformat()
+            inc['started_at'] = inc['started_at'].isoformat() + 'Z'
         
         return incidents
     
@@ -77,9 +77,9 @@ class Incident:
         
         for inc in incidents:
             inc['_id'] = str(inc['_id'])
-            inc['started_at'] = inc['started_at'].isoformat()
+            inc['started_at'] = inc['started_at'].isoformat() + 'Z'
             if inc.get('ended_at'):
-                inc['ended_at'] = inc['ended_at'].isoformat()
+                inc['ended_at'] = inc['ended_at'].isoformat() + 'Z'
         
         return incidents
     
@@ -94,9 +94,9 @@ class Incident:
         
         for inc in incidents:
             inc['_id'] = str(inc['_id'])
-            inc['started_at'] = inc['started_at'].isoformat()
+            inc['started_at'] = inc['started_at'].isoformat() + 'Z'
             if inc.get('ended_at'):
-                inc['ended_at'] = inc['ended_at'].isoformat()
+                inc['ended_at'] = inc['ended_at'].isoformat() + 'Z'
         
         return incidents
     

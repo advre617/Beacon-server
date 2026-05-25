@@ -9,7 +9,7 @@ def ping():
     """Простой healthcheck для API"""
     return jsonify({
         "status": "ok",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.utcnow().isoformat() + 'Z',
         "service": "Beacon Monitor API"
     })
 
@@ -34,14 +34,14 @@ def ping_db():
                 "incidents": db.incidents.count_documents({}),
                 "users": db.users.count_documents({})
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat() + 'Z'
         })
     except Exception as e:
         return jsonify({
             "status": "error",
             "database": "disconnected",
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat() + 'Z'
         }), 500
 
 @bp.route('/info', methods=['GET'])
@@ -55,5 +55,5 @@ def system_info():
         "version": "1.0.0",
         "python_version": sys.version,
         "platform": platform.platform(),
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat() + 'Z'
     })

@@ -30,7 +30,7 @@ def current_status():
             "active": endpoint.get('active', True),
             "status": last_check.get('status') if last_check else 'unknown',
             "latency_ms": last_check.get('latency_ms') if last_check else None,
-            "last_check_at": last_check['checked_at'].isoformat() if last_check and last_check.get('checked_at') else None,
+            "last_check_at": last_check['checked_at'].isoformat() + 'Z' if last_check and last_check.get('checked_at') else None,
             "error_message": last_check.get('error_message') if last_check else None
         })
     
@@ -81,14 +81,14 @@ def endpoint_status(endpoint_id):
             "uptime_24h": round(uptime_24h, 2),
             "avg_latency_ms": round(avg_latency, 2) if avg_latency else None,
             "total_checks": len(checks),
-            "last_check": checks[0]['checked_at'].isoformat() if checks else None,
+            "last_check": checks[0]['checked_at'].isoformat() + 'Z' if checks else None,
             "current_status": checks[0]['status'] if checks else 'unknown'
         },
         "recent_checks": [
             {
                 "status": c['status'],
                 "latency_ms": c.get('latency_ms'),
-                "checked_at": c['checked_at'].isoformat(),
+                "checked_at": c['checked_at'].isoformat() + 'Z',
                 "error_message": c.get('error_message')
             } for c in checks[:20]
         ]
@@ -125,7 +125,7 @@ def status_history(endpoint_id):
     history = []
     for check in checks:
         history.append({
-            "timestamp": check['checked_at'].isoformat(),
+            "timestamp": check['checked_at'].isoformat() + 'Z',
             "status": check['status'],
             "latency_ms": check.get('latency_ms')
         })

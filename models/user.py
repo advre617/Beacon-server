@@ -48,6 +48,6 @@ class User:
             "email": user["email"],
             "username": user["username"],
             "is_active": user.get("is_active", True),
-            "created_at": user["created_at"].isoformat() if user.get("created_at") else None,
-            "last_login": user["last_login"].isoformat() if user.get("last_login") else None
+            "created_at": user["created_at"].isoformat() + 'Z' if user.get("created_at") else None,
+            "last_login": user["last_login"].isoformat() + 'Z' if user.get("last_login") else None
         }

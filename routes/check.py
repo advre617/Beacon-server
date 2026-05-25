@@ -32,15 +32,17 @@ def check_now(endpoint_id):
         {"_id": ObjectId(endpoint_id)},
         {"$set": {
             "last_check_at": result['checked_at'],
-            "last_status": result['status']
+            "last_status": result['status'],
+            "latency_ms": result.get('latency_ms'),  # ← добавь это
         }}
     )
+
     
     return jsonify({
         "status": result['status'],
         "latency_ms": result.get('latency_ms'),
         "error_message": result.get('error_message'),
-        "checked_at": result['checked_at'].isoformat()
+        "checked_at": result['checked_at'].isoformat() + 'Z'
     })
 
 @bp.route('/batch', methods=['POST'])
@@ -69,3 +71,40 @@ def check_batch():
         "total": len(results),
         "results": results
     })
+
+# В routes/check.py - исправленная версия
+@bp.route('/recent', methods=['GET'])
+@login_required
+def recent_checks():
+    """Получить последние проверки для дашборда"""
+    db = get_db()
+    user_id = str(g.current_user['_id'])
+    
+    # Получаем все эндпоинты пользователя
+    endpoints = list(db.endpoints.find({"user_id": user_id}))
+    endpoint_ids = [str(e['_id']) for e in endpoints]
+    
+    if not endpoint_ids:
+        return jsonify([])
+    
+    # Получаем последние проверки
+    checks_list = list(db.checks.find(
+        {"endpoint_id": {"$in": endpoint_ids}}
+    ).sort("checked_at", -1).limit(50))
+    
+    # Создаём карту имён эндпоинтов
+    endpoint_map = {str(e['_id']): e['name'] for e in endpoints}
+    
+    result = []
+    for check in checks_list:
+        result.append({
+            "id": str(check['_id']),
+            "endpoint_id": check['endpoint_id'],
+            "endpoint_name": endpoint_map.get(check['endpoint_id'], 'Unknown'),
+            "status": check['status'],
+            "latency_ms": check.get('latency_ms'),
+            "checked_at": check['checked_at'].isoformat() + 'Z' if check.get('checked_at') else None,
+            "error_message": check.get('error_message')
+        })
+    
+    return jsonify(result)
